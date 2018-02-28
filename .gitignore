@@ -5,7 +5,7 @@ __pycache__/
 
 #data
 data/
-
+ggit.sh
 
 ## C extensions
 *.so
