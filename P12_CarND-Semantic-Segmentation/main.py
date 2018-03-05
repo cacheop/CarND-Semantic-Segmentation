@@ -1,6 +1,6 @@
 import os.path
-import matplotlib.pyplot as plt
 import imageio
+import tqdm
 import tensorflow as tf
 import helper
 import warnings
@@ -8,18 +8,13 @@ from distutils.version import LooseVersion
 import project_tests as tests
 import scipy.misc
 import numpy as np
+
+imageio.plugins.ffmpeg.download()
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 
 LEARNING_RATE = 1e-4
 KEEP_PROB = 0.5
-
-# these need to be global for the video pipeline function
-image_shape = (1,1)
-sess = tf.Session()
-keep_prob = tf.placeholder(tf.float32)
-logits = tf.placeholder(tf.float32, [None, None, None, 2])
-input_image = tf.placeholder(tf.int32, [None, None, 3])
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
@@ -30,6 +25,7 @@ if not tf.test.gpu_device_name():
     warnings.warn('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+
 
 def load_vgg(sess, vgg_path):
     """
@@ -58,7 +54,7 @@ def load_vgg(sess, vgg_path):
     vgg_layer4_out = graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
     vgg_layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
 
-    return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out            
+    return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
@@ -112,7 +108,6 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """    
-   
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
     labels = tf.reshape(correct_label, (-1, num_classes))
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
@@ -137,25 +132,20 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     """
     for epoch in range(epochs):
         for batch, (image, label) in enumerate(get_batches_fn(batch_size)):
-            #_, loss = sess.run([train_op, cross_entropy_loss], feed_dict=feed_dict)
-
             feed_dict = {input_image: image, correct_label: label, keep_prob: 0.5, learning_rate: 1e-4}
             _, loss = sess.run([train_op, cross_entropy_loss], feed_dict=feed_dict)
-            
-            #_, loss = sess.run([train_op, cross_entropy_loss], feed_dict={input_image: image, correct_label: label, keep_prob: KEEP_PROB, learning_rate: LEARNING_RATE})
-            print('Epoch ', epoch, ' Batch ', batch, ' Loss ', loss, flush=True)
+            print('epoch: ', epoch, ' batch: ', batch, ' loss: ', loss, flush=True)
 
     pass
+            
+def frame_inference(frame, sess, image_shape, logits, keep_prob, input_image):
 
-def video_pipeline(image):
-    plt.imshow(image)      
-    image = scipy.misc.imresize(image, image_shape)
-    plt.imshow(image)      
-    
-    im_softmax = sess.run([tf.nn.softmax(logits)],{keep_prob: 1.0, input_image: [image]})
-    
-    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+    image = scipy.misc.imresize(frame, image_shape)
         
+    im_softmax = sess.run(
+            [tf.nn.softmax(logits)],
+            {keep_prob: 1.0, input_image: [image]})
+    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
     segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
     mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
     mask = scipy.misc.toimage(mask, mode="RGBA")
@@ -164,17 +154,21 @@ def video_pipeline(image):
 
     return np.array(street_im)
 
-def run_video(in_video):
-    
-    in_vid  = 'data/videos/' + in_video
-    out_vid = 'runs/videos/'+ in_video
+def video_pipeline(clip, sess, image_shape, logits, keep_prob, input_image):
+    def image_pipeline(frame):
+        return frame_inference(frame, sess, image_shape, logits, keep_prob, input_image)
+    return clip.fl_image(image_pipeline)
+
+def process_video(sess, image_shape, logits, keep_prob, input_image, input_video):
+    in_vid  = 'data/videos/' + input_video
+    out_vid = 'runs/videos/'+ input_video
     clip = VideoFileClip(in_vid)
-    
-    video_clip = clip.fl_image(video_pipeline)
+    #video_clip = clip.fl_image(video_pipeline)
+    video_clip = clip.fx (video_pipeline, sess, image_shape, logits, keep_prob, input_image)
     video_clip.write_videofile(out_vid, audio=False)
     pass
 
-def run_():
+def run():
     num_classes = 2
     image_shape = (160, 576)
     data_dir = './data'
@@ -189,8 +183,8 @@ def run_():
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
 
-    epochs = 40
-    batch_size = 8
+    epochs = 55
+    batch_size = 16
 
     with tf.Session() as sess:
         # Path to vgg model
@@ -235,55 +229,8 @@ def run_():
         #helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob, input_image)
 
         # Apply the trained model to a video
-        in_video = 'challenge_video.mp4'
-        run_video(in_video)
-
-def run_old():
-    num_classes = 2
-    image_shape = (160, 576)
-    data_dir = './data'
-    runs_dir = './runs'
-    tests.test_for_kitti_dataset(data_dir)
-
-    learning_rate = tf.placeholder(tf.float32)
-    correct_label = tf.placeholder(tf.int32, [None, None, None, num_classes])
-
-    # Download pretrained vgg model
-    helper.maybe_download_pretrained_vgg(data_dir)
-
-    epochs = 30
-    batch_size = 8
-    
-    # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
-    # You'll need a GPU with at least 10 teraFLOPS to train on.
-    #  https://www.cityscapes-dataset.com/
-
-    with tf.Session() as sess:
-        # Path to vgg model
-        vgg_path = os.path.join(data_dir, 'vgg')
-        
-        # Create function to get batches
-        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
-
-        # OPTIONAL: Augment Images for better results
-        #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
-
-        # Build NN using load_vgg, layers, and optimize function
-        input_image, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out = load_vgg(sess, vgg_path)
-        nn_last_layer = layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes)
-        logits, train_op, cross_entropy_loss = optimize(nn_last_layer, correct_label, learning_rate, num_classes)
-
-        sess.run(tf.global_variables_initializer())
-        # Train NN using the train_nn function
-        train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
-             correct_label, vgg_keep_prob, learning_rate)
-
-        # Save inference data using helper.save_inference_samples
-        #helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob, input_image)
-
-        # Apply the trained model to a video
-        in_video = 'challenge_video.mp4'
-        run_video(in_video)
+        input_video = 'snow.mp4'
+        process_video(sess, image_shape, logits, vgg_keep_prob, input_image, input_video)
 
 if __name__ == '__main__':
-    run_()
+    run()
