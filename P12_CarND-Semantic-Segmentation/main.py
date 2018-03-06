@@ -58,31 +58,6 @@ def load_vgg(sess, vgg_path):
     return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out
             
 
-def layers_(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
-    """
-    Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
-    :param vgg_layer7_out: TF Tensor for VGG Layer 3 output size 4096
-    :param vgg_layer4_out: TF Tensor for VGG Layer 4 output size 512
-    :param vgg_layer3_out: TF Tensor for VGG Layer 7 output size 256
-    :param num_classes: Number of classes to classify
-    :return: The Tensor for the last layer of output
-    """
-    conv_1x1_lay7 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    conv_1x1_lay4 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-
-    output = tf.layers.conv2d_transpose(conv_1x1_lay7, num_classes, 4, 2, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x2
-    output = tf.add(output, conv_1x1_lay4)  # first skip layer
-
-    conv_1x1_lay3 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-
-    output = tf.layers.conv2d_transpose(output, num_classes, 4, 2, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x2
-    output = tf.add(output, conv_1x1_lay3)  # second skip layer
-
-    output = tf.layers.conv2d_transpose(output, num_classes, 16, 8, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x8 to get original image size
-
-    return output
-
-
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
