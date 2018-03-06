@@ -6,7 +6,7 @@ __pycache__/
 #data
 data/
 saved_network/
-runs/
+#runs/
 ggit.sh
 
 ## C extensions
