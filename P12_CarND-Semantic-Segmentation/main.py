@@ -16,6 +16,7 @@ from IPython.display import HTML
 LEARNING_RATE = 1e-4
 KEEP_PROB = 0.5
 
+
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
 print('TensorFlow Version: {}'.format(tf.__version__))
@@ -55,6 +56,32 @@ def load_vgg(sess, vgg_path):
     vgg_layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
 
     return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out
+            
+
+def layers_(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
+    """
+    Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
+    :param vgg_layer7_out: TF Tensor for VGG Layer 3 output size 4096
+    :param vgg_layer4_out: TF Tensor for VGG Layer 4 output size 512
+    :param vgg_layer3_out: TF Tensor for VGG Layer 7 output size 256
+    :param num_classes: Number of classes to classify
+    :return: The Tensor for the last layer of output
+    """
+    conv_1x1_lay7 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+    conv_1x1_lay4 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+
+    output = tf.layers.conv2d_transpose(conv_1x1_lay7, num_classes, 4, 2, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x2
+    output = tf.add(output, conv_1x1_lay4)  # first skip layer
+
+    conv_1x1_lay3 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+
+    output = tf.layers.conv2d_transpose(output, num_classes, 4, 2, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x2
+    output = tf.add(output, conv_1x1_lay3)  # second skip layer
+
+    output = tf.layers.conv2d_transpose(output, num_classes, 16, 8, 'same',kernel_initializer=tf.truncated_normal_initializer(stddev=1e-2),kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))  # scale up by x8 to get original image size
+
+    return output
+
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
@@ -99,6 +126,7 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
                                 kernel_regularizer= tf.contrib.layers.l2_regularizer(1e-3))
     return layer7_4_3_transpose
 
+
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     """
     Build the TensorFLow loss and optimizer operations.
@@ -115,6 +143,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
     return logits, optimizer, cross_entropy_loss
 
+
 def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
              correct_label, keep_prob, learning_rate):
     """
@@ -130,6 +159,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
     """
+            
     for epoch in range(epochs):
         for batch, (image, label) in enumerate(get_batches_fn(batch_size)):
             feed_dict = {input_image: image, correct_label: label, keep_prob: 0.5, learning_rate: 1e-4}
@@ -138,6 +168,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
 
     pass
             
+
 def frame_inference(frame, sess, image_shape, logits, keep_prob, input_image):
 
     image = scipy.misc.imresize(frame, image_shape)
@@ -159,14 +190,17 @@ def video_pipeline(clip, sess, image_shape, logits, keep_prob, input_image):
         return frame_inference(frame, sess, image_shape, logits, keep_prob, input_image)
     return clip.fl_image(image_pipeline)
 
+
 def process_video(sess, image_shape, logits, keep_prob, input_image, input_video):
+
     in_vid  = 'data/videos/' + input_video
-    out_vid = 'runs/videos/'+ input_video
+    out_vid = 'runs/videos/out_'+ input_video
     clip = VideoFileClip(in_vid)
-    #video_clip = clip.fl_image(video_pipeline)
+    #clip = clip.subclip(15,20)
     video_clip = clip.fx (video_pipeline, sess, image_shape, logits, keep_prob, input_image)
     video_clip.write_videofile(out_vid, audio=False)
     pass
+
 
 def run():
     num_classes = 2
@@ -229,8 +263,13 @@ def run():
         #helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob, input_image)
 
         # Apply the trained model to a video
-        input_video = 'snow.mp4'
+        input_video = 'challenge_video.mp4'
         process_video(sess, image_shape, logits, vgg_keep_prob, input_image, input_video)
+         
+        input_video = 'harder_challenge_video.mp4'
+        process_video(sess, image_shape, logits, vgg_keep_prob, input_image, input_video)
+
 
 if __name__ == '__main__':
     run()
+
